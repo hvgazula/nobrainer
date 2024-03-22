@@ -5,6 +5,7 @@ import tensorflow as tf
 
 from .base import BaseEstimator
 from .. import losses, metrics
+from ..models import available_models, list_available_models
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -15,19 +16,37 @@ class Segmentation(BaseEstimator):
     state_variables = ["block_shape_", "volume_shape_", "scalar_labels_"]
 
     def __init__(
-        self, base_model, model_args=None, checkpoint_filepath=None, multi_gpu=True
+        self, base_model=None, model_args=None, checkpoint_filepath=None, multi_gpu=True
     ):
         super().__init__(checkpoint_filepath=checkpoint_filepath, multi_gpu=multi_gpu)
 
-        if not isinstance(base_model, str):
+        if base_model is None:
+            print(
+                "No model specified. Please specify one using the 'add_model' method."
+            )
+            self.base_model = None
+        elif not isinstance(base_model, str):
             self.base_model = base_model.__name__
         else:
             self.base_model = base_model
+
+        if self.base_model and self.base_model not in available_models():
+            raise ValueError(
+                "Unknown model: '{}'. Available models are {}.".format(
+                    self.base_model, available_models()
+                )
+            )
+
         self.model_ = None
         self.model_args = model_args or {}
         self.block_shape_ = None
         self.volume_shape_ = None
         self.scalar_labels_ = None
+
+    def add_model(self, base_model, model_args=None):
+        """Add a segmentation model"""
+        self.base_model = base_model
+        self.model_args = model_args or {}
 
     def fit(
         self,
@@ -72,7 +91,7 @@ class Segmentation(BaseEstimator):
                 metrics=metrics,
             )
 
-        if self.model is None:
+        if self.model_ is None:
             mod = importlib.import_module("..models", "nobrainer.processing")
             base_model = getattr(mod, self.base_model)
             if batch_size % self.strategy.num_replicas_in_sync:
@@ -97,9 +116,9 @@ class Segmentation(BaseEstimator):
             epochs=epochs,
             steps_per_epoch=dataset_train.get_steps_per_epoch(),
             validation_data=dataset_validate.dataset if dataset_validate else None,
-            validation_steps=dataset_validate.get_steps_per_epoch()
-            if dataset_validate
-            else None,
+            validation_steps=(
+                dataset_validate.get_steps_per_epoch() if dataset_validate else None
+            ),
             callbacks=callbacks,
             verbose=verbose,
         )
@@ -119,3 +138,6 @@ class Segmentation(BaseEstimator):
             batch_size=batch_size,
             normalizer=normalizer,
         )
+
+    def list_available_models(self):
+        list_available_models()
